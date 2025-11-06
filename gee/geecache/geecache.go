@@ -58,6 +58,7 @@ func (g *Group) RegisterPeers(peers PeerPicker) {
 		panic("RegisterPeerPicker called more than once")
 	}
 	g.peers = peers
+
 }
 
 
@@ -74,9 +75,10 @@ func (g *Group) Get(key string) (ByteView, error) {
 
 func (g *Group) load(key string) (ByteView, error) {
 	if g.peers != nil {
+
 		if peer, ok := g.peers.PickPeer(key); ok {
 
-			log.Printf("getter no peer") //报错
+			log.Printf("getter peer success") //报错
 
 			if value, err := g.getFromPeer(peer, key); err == nil {
 				return value, err
@@ -84,8 +86,6 @@ func (g *Group) load(key string) (ByteView, error) {
 		}
 	}
 	
-
-
 	return g.getLocally(key);
 }
 
@@ -94,7 +94,7 @@ func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
 	if err != nil {
 		return ByteView{}, err
 	}
-	return ByteView{b: bytes}, nil
+	return ByteView{b: bytes}, nil            
 }
 
 func (g *Group) getLocally(key string) (ByteView, error) {

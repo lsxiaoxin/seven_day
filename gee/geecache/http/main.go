@@ -28,7 +28,7 @@ func createGroup() *geecache.Group {
 func startCacheServer(addr string, addrs []string, gee *geecache.Group) {
 	peers := geecache.NewHTTPPool(addr)
 	peers.Set(addrs...)
-	gee.RegisterPeers(peers)
+	gee.RegisterPeers(peers)  //要注意看哪个调用了startAPIServer
 	log.Println("geecache is running at", addr)
 	log.Fatal(http.ListenAndServe(addr[7:], peers))
 }
@@ -75,4 +75,5 @@ func main() {
 		go startAPIServer(apiAddr, gee)
 	}
 	startCacheServer(addrMap[port], []string(addrs), gee)
+
 }

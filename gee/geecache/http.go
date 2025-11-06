@@ -25,6 +25,7 @@ type HTTPPool struct {
 	httpGetters map[string]*httpGetter
 }
 
+//每个httppool 都是一个pickpeer
 func NewHTTPPool(self string) *HTTPPool {
 	return &HTTPPool{
 		self:     self,
@@ -52,6 +53,7 @@ func (p *HTTPPool) Set(peers ...string) {
 func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	if peer := p.peers.Get(key); peer != "" && peer != p.self {
 		p.Log("Pick peer %s", peer)
 		return p.httpGetters[peer], true

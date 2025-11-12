@@ -68,7 +68,7 @@ func NewServer () *Server {
 
 var DefaultServer = NewServer()
 
-func (server Server) Accept(lis net.Listener) {
+func (server *Server) Accept(lis net.Listener) {
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
@@ -83,7 +83,7 @@ func Accept(lis net.Listener) {
 	DefaultServer.Accept(lis)
 }
 
-func (server Server) ServeConn(conn io.ReadWriteCloser) {
+func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 	defer func() {
 		_ = conn.Close()
 	}()
@@ -111,7 +111,7 @@ func (server Server) ServeConn(conn io.ReadWriteCloser) {
 
 var invalidRequest = struct{}{}
 
-func (server Server) serveCodec (cc codec.Codec) {
+func (server *Server) serveCodec (cc codec.Codec) {
 	sending := new(sync.Mutex)
 	wg := new(sync.WaitGroup)   //用于保证处理所有请求后再退出
 
@@ -140,7 +140,7 @@ type request struct {
 	svc		*service
 }
 
-func (server Server) readRequest(cc codec.Codec) (*request, error) {
+func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 	h, err := server.readRequestHeader(cc)
 	if err != nil {
 		return nil, err
@@ -170,7 +170,7 @@ func (server Server) readRequest(cc codec.Codec) (*request, error) {
 
 }
 
-func (server Server) readRequestHeader(cc codec.Codec) (*codec.Header, error) {
+func (server *Server) readRequestHeader(cc codec.Codec) (*codec.Header, error) {
 	var h codec.Header
 	if err := cc.ReadHeader(&h); err != nil {
 		if err != io.EOF && err != io.ErrUnexpectedEOF {
@@ -181,7 +181,7 @@ func (server Server) readRequestHeader(cc codec.Codec) (*codec.Header, error) {
 	return &h, nil
 }
 
-func (server Server) sendResponse(cc codec.Codec, h *codec.Header, body interface{}, sending *sync.Mutex) {
+func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interface{}, sending *sync.Mutex) {
 	sending.Lock()
 	defer sending.Unlock()
 	if err := cc.Write(h, body); err != nil {
@@ -189,7 +189,7 @@ func (server Server) sendResponse(cc codec.Codec, h *codec.Header, body interfac
 	}
 }
 
-func (server Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup) {
+func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup) {
 	// TODO, should call registered rpc methods to get the right replyv
 	// day 1, just print argv and send a hello message
 	defer wg.Done()

@@ -1,6 +1,7 @@
 package geerpc
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 type Call struct {
@@ -72,7 +74,7 @@ func (client *Client) registerCall(call *Call) (uint64, error) {
 
 func (client *Client) removeCall(seq uint64) *Call {
 	client.mu.Lock()
-	client.mu.Unlock()
+	defer client.mu.Unlock()
 	call := client.pending[seq]
 	delete(client.pending, seq)
 	return call
@@ -102,17 +104,18 @@ func (client *Client) receive () {
 		case call == nil:
 			err = client.cc.ReadBody(nil)
 		case h.Error != "":
-			call.Error = fmt.Errorf(h.Error)
+			call.Error = fmt.Errorf("%s", h.Error)
 			err = client.cc.ReadBody(nil)
 			call.done()
 		default:
 			err = client.cc.ReadBody(call.Reply)
 			if err != nil {
-				call.Error = errors.New("reading body " + err.Error())
+				call.Error = fmt.Errorf("reading body: %w", err) // 修复：使用常量格式字符串 + %w 包装错误
 			}
 			call.done()
 		}
 	}
+	client.terminateCalls(err)
 }
 
 func NewClient(conn net.Conn, opt *Option) (*Client, error) {
@@ -122,6 +125,7 @@ func NewClient(conn net.Conn, opt *Option) (*Client, error) {
 		log.Println("rpc client: codec error:", err)
 		return nil, err
 	}
+	//向conn 发送 json化 的 opt
 	if err := json.NewEncoder(conn).Encode(opt); err != nil {
 		log.Println("rpc client: options error: ", err)
 		_ = conn.Close()
@@ -155,26 +159,6 @@ func PraseOptions(opts ...*Option) (*Option, error) {
 		opt.CodecType = DefaultOption.CodecType
 	}
 	return opt, nil
-}
-
-func Dail(network, address string, opts ...*Option) (client *Client, err error) {
-	opt, err := PraseOptions(opts...)
-	if err != nil {
-		return nil, err
-	}	
-	conn ,err := net.Dial(network, address) 
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		if client == nil {
-			_ = conn.Close()
-		}
-	}()
-	
-	return NewClient(conn, opt)
-
 }
 
 func (client *Client) send(call *Call) {
@@ -221,7 +205,69 @@ func (client *Client) Go(serviceMethod string, args, reply interface{}, done cha
 
 }
 
-func (client *Client) Call(serviceMethod string, args, reply interface{}) error{
-	call := <-client.Go(serviceMethod, args, reply, make(chan *Call, 1)).Done
-	return call.Error
+/*
+使用：
+func useCall () {
+	ctx, _ := context.WithTimeout(context.Background(), time.Second)
+	var reply int
+	err := client.Call(ctx, "Foo.Sum", &Args{1, 2}, &reply)
+...
+}
+*/
+
+func (client *Client) Call(ctx context.Context, serviceMethod string, args, reply interface{}) error{
+	call := client.Go(serviceMethod, args, reply, make(chan *Call, 1))
+	select {
+	case <- ctx.Done():
+		client.removeCall(call.Seq)
+		return errors.New("rpc client: call failed: " + ctx.Err().Error())
+	case call := <-call.Done:
+		return call.Error
+	}
+}
+
+type clientResult struct {
+	client *Client
+	err    error
+}
+
+type newClientFunc func(conn net.Conn, opt *Option) (client *Client, err error)
+
+func dialTimeout(f newClientFunc, network, address string, opts ...*Option) (client *Client, err error) {
+	opt, err := PraseOptions(opts...)	
+	if err != nil {
+		return nil, err
+	}
+	conn, err := net.DialTimeout(network, address, opt.ConnectTimeout) //TCP连接防止超时
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = conn.Close()
+		}
+	}()
+
+	ch := make(chan clientResult)
+	//创建客户端部分防止超时
+	go func() {
+		client, err := f(conn, opt)
+		ch <- clientResult{client: client, err: err}
+	}()
+
+	if opt.ConnectTimeout == 0 {
+		result := <- ch
+		return result.client, result.err
+	}
+	select {
+	case <- time.After(opt.ConnectTimeout):
+		return nil, fmt.Errorf("rpc client: connect timeout: expect within %s", opt.ConnectTimeout)
+	case result := <-ch:
+		return result.client, result.err	
+	}
+}
+
+func Dial(network, address string, opts ...*Option) (client *Client, err error) {
+	return dialTimeout(NewClient, network, address, opts...)
+
 }

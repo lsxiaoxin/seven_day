@@ -49,6 +49,7 @@ func (xc *XClient) call (rpcaddr string, ctx context.Context, serviceMethod stri
 	if err != nil {
 		return  err
 	}
+
 	return client.Call(ctx, serviceMethod, args, reply)
 }
 
